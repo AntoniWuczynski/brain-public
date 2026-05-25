@@ -41,3 +41,12 @@ metadata/embeddings_meta.jsonl
 .obsidian/workspace.json
 .obsidian/workspace-mobile.json
 .obsidian/cache
+
+# Installed community plugins — per-machine, and plugin data.json files
+# often contain API keys (e.g. Copilot for Obsidian). The list of enabled
+# plugin IDs in .obsidian/community-plugins.json is fine to commit.
+.obsidian/plugins/
+
+# Copilot for Obsidian local state — conversations and the plugin's own
+# embedding index. Per-machine, sometimes sensitive.
+copilot/

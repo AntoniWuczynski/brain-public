@@ -1,5 +1,7 @@
 # brain
 
+> **This is a template repository.** Click the green **Use this template** button at the top of the page to create your own copy. Don't `git clone` it directly unless you intend to track upstream changes.
+
 A personal knowledge vault you can drop files into and query like an extension of your own memory. PDFs, slides, notes, code, datasets — anything you'd want to remember later. Optimised for use by humans (Obsidian), AI agents (Claude, Codex, future MCP clients), and your future self.
 
 ## What it gives you

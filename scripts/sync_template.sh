@@ -147,6 +147,8 @@ for forbidden in \
     "$WORKTREE/metadata/embeddings.npy" \
     "$WORKTREE/_template" \
     "$WORKTREE/.env" \
+    "$WORKTREE/copilot" \
+    "$WORKTREE/.obsidian/plugins" \
     ; do
     if [ -e "$forbidden" ]; then
         echo "ABORT: personal path leaked into template: $forbidden"
@@ -168,10 +170,10 @@ echo
 echo "template branch updated. To publish:"
 echo
 echo "  # first time: create the public repo (do this once)"
-echo "  gh repo create <your-user>/brain-public --public --source=$ROOT --remote=public --push=false"
+echo "  gh repo create <your-user>/brain-template --public --source=$ROOT --remote=public --push=false"
 echo
 echo "  # add the remote on the main repo (do this once)"
-echo "  git -C $ROOT remote add public git@github.com:<your-user>/brain-public.git"
+echo "  git -C $ROOT remote add public git@github.com:<your-user>/brain-template.git"
 echo
 echo "  # push the template branch as main on the public repo"
 echo "  git -C $ROOT push public template:main"
