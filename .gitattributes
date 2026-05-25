@@ -1,0 +1,9 @@
+# Ensure Markdown stays text on every platform
+*.md text eol=lf
+*.py text eol=lf
+*.json text eol=lf
+*.toml text eol=lf
+
+# Treat raw archive content as binary so git doesn't try to diff
+archive/raw/** binary
+inbox/** binary

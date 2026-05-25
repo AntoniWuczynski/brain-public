@@ -1,0 +1,56 @@
+[project]
+name = "brain"
+version = "0.1.0"
+description = "Personal model-agnostic second brain: ingestion + tooling."
+requires-python = ">=3.12,<3.13"
+readme = "README.md"
+
+# Core dependencies that the ingestion CLI needs to *function* with the
+# pypdf fallback path. Install with `uv sync`.
+dependencies = [
+    "pypdf>=5.0",
+    "python-docx>=1.1",
+    "python-pptx>=1.0",
+    "nbformat>=5.10",
+    "pyyaml>=6.0",
+    "rich>=13.7",            # nicer dry-run / progress output
+    "platformdirs>=4.2",
+    "anthropic>=0.40",       # LLM summarizer (skipped silently if no key)
+    "python-dotenv>=1.0",    # auto-load .env at the repo root
+    "sentence-transformers>=3.0",  # local embeddings for --search
+    "numpy>=1.26",           # vector store (already a transitive of torch)
+    "tomli>=2.0; python_version < '3.11'",
+]
+
+# MinerU (the full PDF extraction stack — PaddleOCR PP-Structure +
+# PaddleOCR + UniMerNet) is **deliberately not in the lockfile**. Some
+# of its transitive deps are pre-releases that break uv's lockfile
+# resolution, and the model weights are ~14 GB which most CI
+# environments don't want.
+#
+# Install it separately into the same .venv when you want full
+# extraction:
+#
+#     uv pip install --prerelease=allow "mineru[pipeline]"
+#
+# Note the ``[pipeline]`` extra — without it, torch isn't pulled in and
+# the CLI fails fast with ``ModuleNotFoundError: No module named 'torch'``.
+# ``uv sync`` will prune mineru on every run because it isn't in the
+# lockfile, so repeat the command above after each sync.
+#
+# Models auto-download from Hugging Face on first use; no config file
+# required. When MinerU isn't installed, the ingestion script falls
+# back to pypdf for text-only extraction and marks notes
+# `status: partial`.
+
+[tool.uv]
+managed = true
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+# This project is not meant to be packaged; declare a synthetic
+# package list so hatch doesn't fail.
+packages = ["scripts/ingest_lib"]

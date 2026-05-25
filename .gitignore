@@ -1,0 +1,43 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+
+# Python / uv
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.python-version
+.uv-cache/
+
+# Editors
+.vscode/
+.idea/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Models cached by extractors (MinerU/PaddleOCR weights)
+.cache/
+models/
+
+# Logs are noisy and regenerate themselves on every run
+logs/*.log
+logs/*.tmp
+logs/*.gz
+
+# Semantic search index is regenerable from archive/processed/
+# (rebuilt by every ingest, or by --rebuild-search-index)
+metadata/embeddings.npy
+metadata/embeddings.npy.tmp.npy
+metadata/embeddings_meta.jsonl
+
+# Obsidian workspace state (per-machine; keep config + plugins)
+.obsidian/workspace.json
+.obsidian/workspace-mobile.json
+.obsidian/cache

@@ -1,0 +1,248 @@
+"""Generate processed Markdown + index notes; merge user-edited frontmatter."""
+from __future__ import annotations
+
+import os
+import tempfile
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+
+_GENERATED_FRONTMATTER_KEYS: frozenset[str] = frozenset(
+    {
+        "title",
+        "type",
+        "source_file",
+        "source_hash",
+        "created",
+        "updated",
+        "status",
+    }
+)
+
+
+@dataclass(frozen=True)
+class NoteContent:
+    """Fields the note generator needs to populate frontmatter and body."""
+
+    title: str
+    source_relative_path: str    # path under archive/raw, used for source_file + Source: link
+    source_hash: str
+    status: str                  # "processed" | "partial" | "manual_review"
+    extracted_markdown: str      # body content (may be empty if manual_review)
+    processing_notes: list[str]  # bullet points for the "Processing notes" section
+    extractor: str               # informational; recorded in processing notes
+    # Optional LLM-generated, faithful summary + key points + topics.
+    summary: str = ""
+    key_points: tuple[str, ...] = ()
+    topics: tuple[str, ...] = ()
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _atomic_write(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".note-", suffix=".md", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(content)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except FileNotFoundError:
+            pass
+        raise
+
+
+def _split_frontmatter(text: str) -> tuple[dict[str, Any], str]:
+    """Return (frontmatter_dict, body). Empty dict if no frontmatter."""
+    if not text.startswith("---\n") and not text.startswith("---\r\n"):
+        return {}, text
+    # Find the closing fence.
+    lines = text.splitlines(keepends=True)
+    if not lines:
+        return {}, text
+    # First line is "---"; scan from line 1 for the next "---".
+    end = -1
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            end = i
+            break
+    if end < 0:
+        return {}, text
+    yaml_block = "".join(lines[1:end])
+    body = "".join(lines[end + 1 :])
+    try:
+        loaded = yaml.safe_load(yaml_block) or {}
+    except yaml.YAMLError:
+        return {}, text
+    if not isinstance(loaded, dict):
+        return {}, text
+    return loaded, body
+
+
+def _merge_frontmatter(
+    existing: dict[str, Any],
+    *,
+    generated: dict[str, Any],
+) -> dict[str, Any]:
+    """Generated keys are refreshed; everything else from `existing` is kept.
+
+    `created` is preserved from `existing` if present (immutable once set).
+    """
+    merged: dict[str, Any] = dict(existing)
+    for k, v in generated.items():
+        if k == "created" and existing.get("created"):
+            continue
+        merged[k] = v
+    # Ensure required keys exist even if neither side provided them.
+    for k, default in (
+        ("topics", []),
+        ("aliases", []),
+    ):
+        merged.setdefault(k, default)
+    return merged
+
+
+def _frontmatter_to_yaml(fm: dict[str, Any]) -> str:
+    # Stable key ordering for determinism: required keys first, then alphabetical.
+    required = [
+        "title",
+        "type",
+        "source_file",
+        "source_hash",
+        "created",
+        "updated",
+        "status",
+        "topics",
+        "aliases",
+    ]
+    ordered: dict[str, Any] = {}
+    for k in required:
+        if k in fm:
+            ordered[k] = fm[k]
+    for k in sorted(fm):
+        if k not in ordered:
+            ordered[k] = fm[k]
+    return yaml.safe_dump(ordered, sort_keys=False, allow_unicode=True, default_flow_style=False)
+
+
+def write_processed_note(
+    *,
+    target: Path,
+    content: NoteContent,
+) -> None:
+    """Write the long-form processed Markdown to ``archive/processed/...``.
+
+    This file is regenerable; we don't try to merge user edits here.
+    """
+    body = content.extracted_markdown or "_(no content extracted)_\n"
+    notes_block = "\n".join(f"- {n}" for n in content.processing_notes) or "- _(no notes)_"
+    rendered = (
+        f"# {content.title}\n\n"
+        f"> Source: `{content.source_relative_path}`  \n"
+        f"> Hash: `{content.source_hash}`  \n"
+        f"> Extractor: `{content.extractor}`  \n"
+        f"> Status: `{content.status}`\n\n"
+        "---\n\n"
+        f"{body}\n\n"
+        "---\n\n"
+        "## Processing notes\n\n"
+        f"{notes_block}\n"
+    )
+    _atomic_write(target, rendered)
+
+
+def write_index_note(
+    *,
+    target: Path,
+    content: NoteContent,
+) -> None:
+    """Write the Obsidian-friendly index note. Preserves user frontmatter on update."""
+    existing_fm: dict[str, Any] = {}
+    if target.exists():
+        existing_text = target.read_text(encoding="utf-8")
+        existing_fm, _ = _split_frontmatter(existing_text)
+
+    now_iso = _utc_now_iso()
+    generated_fm: dict[str, Any] = {
+        "title": content.title,
+        "type": "source_note",
+        "source_file": content.source_relative_path,
+        "source_hash": content.source_hash,
+        "created": existing_fm.get("created") or now_iso,
+        "updated": now_iso,
+        "status": content.status,
+    }
+    merged_fm = _merge_frontmatter(existing_fm, generated=generated_fm)
+    # Topics merge: take the union of auto-extracted and user-edited.
+    if content.topics:
+        existing_topics = list(merged_fm.get("topics") or [])
+        merged_topics: list[str] = []
+        seen: set[str] = set()
+        for t in list(content.topics) + existing_topics:
+            t = t.strip()
+            if t and t not in seen:
+                merged_topics.append(t)
+                seen.add(t)
+        merged_fm["topics"] = merged_topics
+
+    yaml_block = _frontmatter_to_yaml(merged_fm)
+
+    summary_block = _summary_block(content)
+    key_points_block = _key_points_block(content)
+    processed_link = _processed_link_path(content.source_relative_path)
+    body = (
+        "# Summary\n\n"
+        f"{summary_block}\n\n"
+        "# Key points\n\n"
+        f"{key_points_block}\n\n"
+        "# Extracted content\n\n"
+        f"![[archive/processed/{processed_link}]]\n\n"
+        "# Links\n\n"
+        f"- Source: [[archive/raw/{_strip_extension(content.source_relative_path)}]]\n"
+        f"- Processed Markdown: [[archive/processed/{processed_link}]]\n\n"
+        "# Processing notes\n\n"
+        f"{_processing_notes_block(content)}\n"
+    )
+    _atomic_write(target, f"---\n{yaml_block}---\n\n{body}")
+
+
+def _summary_block(content: NoteContent) -> str:
+    if content.summary:
+        return content.summary
+    if content.status == "manual_review":
+        return "_(empty — extraction failed; see Processing notes)_"
+    if content.status == "partial":
+        return "_(extraction was incomplete; see Processing notes)_"
+    return "_(no auto-summary — set ANTHROPIC_API_KEY to enable, or write one here.)_"
+
+
+def _key_points_block(content: NoteContent) -> str:
+    if content.key_points:
+        return "\n".join(f"- {kp}" for kp in content.key_points)
+    return "- _(empty)_"
+
+
+def _processing_notes_block(content: NoteContent) -> str:
+    if not content.processing_notes:
+        return f"- Extractor: `{content.extractor}`"
+    bullets = "\n".join(f"- {n}" for n in content.processing_notes)
+    return f"- Extractor: `{content.extractor}`\n{bullets}"
+
+
+def _processed_link_path(source_relative_path: str) -> str:
+    return _strip_extension(source_relative_path)
+
+
+def _strip_extension(path_str: str) -> str:
+    p = Path(path_str)
+    return str(p.with_suffix("")).replace(os.sep, "/")
