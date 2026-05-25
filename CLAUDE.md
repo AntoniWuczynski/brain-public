@@ -48,6 +48,13 @@ You should **not** spend time on:
   `uv pip install --prerelease=allow "mineru[pipeline]"` to restore PDF
   full-extraction. Without it, PDFs silently fall back to pypdf and land
   as `partial`.
+- **LLM provider for summarizer**: four backends behind one router in
+  `scripts/ingest_lib/summarize.py` — `anthropic` (default,
+  `claude-haiku-4-5`), `openai` (`gpt-5-mini`), `gemini`
+  (`gemini-2.5-flash`), and `local` (any OpenAI-compatible server via
+  `BRAIN_LOCAL_URL`). Selected by `BRAIN_LLM_PROVIDER` or auto-detected
+  from whichever key is set. Same `DocSummary` Pydantic schema across
+  all four.
 - **PDF extractor**: MinerU (package `mineru`, CLI invoked as a
   subprocess) — wraps PaddleOCR's PP-Structure for layout, PaddleOCR
   for text OCR, UniMerNet for formulas; outputs Markdown + extracted

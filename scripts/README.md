@@ -42,6 +42,25 @@ query phrasing doesn't match any tag exactly. Uses
   (e.g. the planned MCP server).
 - Override the inference device with ``BRAIN_EMBED_DEVICE=cpu|mps|cuda``.
 
+## LLM provider for the summarizer
+
+The summarizer dispatches to one of four providers, selected by
+``BRAIN_LLM_PROVIDER`` env var (or auto-detected from whichever API
+key is set):
+
+| Provider | Env var | Default model |
+|---|---|---|
+| `anthropic` | `ANTHROPIC_API_KEY` | `claude-haiku-4-5` |
+| `openai` | `OPENAI_API_KEY` | `gpt-5-mini` |
+| `gemini` | `GOOGLE_API_KEY` or `GEMINI_API_KEY` | `gemini-2.5-flash` |
+| `local` | `BRAIN_LOCAL_URL` + `BRAIN_LOCAL_MODEL` | (see below) |
+
+The model name can be overridden with `BRAIN_LLM_MODEL`. The `local`
+provider uses the OpenAI SDK with a custom `base_url`, so anything
+that speaks the OpenAI Chat Completions API works: Ollama (≥0.5 for
+structured outputs), LM Studio, llama.cpp's server, vLLM. Same Pydantic
+schema across all four providers, so behaviour is consistent.
+
 ## Autonomous curation (concept notes)
 
 When summarization is enabled, the LLM emits 3-8 canonical **topic tags**

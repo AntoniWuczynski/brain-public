@@ -49,7 +49,13 @@ Four layers, four concerns: **archive** is ground truth, **processed** is regene
 - **macOS or Linux**. Apple Silicon and CUDA both work for MinerU; CPU works but is slow on long PDFs.
 - **[uv](https://docs.astral.sh/uv/)** for environment management.
 - **Obsidian** if you want the human-facing UI. The vault is plain Markdown, so any editor works, but Obsidian is what the wikilink and transclusion conventions assume.
-- **[Optional] An Anthropic API key** for summaries, key points, and topic tagging. Without it, ingestion still works but the index notes show placeholders instead of summaries.
+- **[Optional] An LLM provider** for summaries, key points, and topic tagging. Pick one of:
+  - Anthropic Claude (default, set `ANTHROPIC_API_KEY`)
+  - OpenAI (set `OPENAI_API_KEY`)
+  - Google Gemini (set `GOOGLE_API_KEY` or `GEMINI_API_KEY`)
+  - Any OpenAI-compatible local server — Ollama, LM Studio, llama.cpp, vLLM (set `BRAIN_LOCAL_URL` and `BRAIN_LOCAL_MODEL`)
+
+  The summarizer auto-detects from whichever key is present, or you can pin a choice with `BRAIN_LLM_PROVIDER`. Without any provider configured, ingestion still works but the index notes show placeholders instead of summaries.
 
 ## Setup
 
@@ -67,11 +73,12 @@ uv pip install --prerelease=allow "mineru[pipeline]"
 
 `uv sync` will prune MinerU on every subsequent run because it isn't in the lockfile (its transitive deps include pre-releases that break `uv`'s resolver). Re-run the line above after each sync, or wrap both in a `scripts/setup.sh` of your own.
 
-To enable summaries and topic tagging, copy `.env.example` to `.env` and add your Anthropic key:
+To enable summaries and topic tagging, copy `.env.example` to `.env` and add a provider's credentials:
 
 ```bash
 cp .env.example .env
-# edit .env and set ANTHROPIC_API_KEY
+# edit .env: set ANTHROPIC_API_KEY (or OPENAI_API_KEY, GOOGLE_API_KEY,
+# or BRAIN_LOCAL_URL + BRAIN_LOCAL_MODEL for an OpenAI-compatible local server)
 ```
 
 ## Daily use
@@ -117,11 +124,18 @@ Everything is via environment variables in `.env`:
 
 | Variable | Effect |
 |---|---|
-| `ANTHROPIC_API_KEY` | Required for summaries / topic tags |
-| `BRAIN_SKIP_SUMMARY=1` | Skip summarization even with a key set |
-| `MINERU_DEVICE_MODE` | `cpu` / `mps` / `cuda` for MinerU inference |
-| `BRAIN_EMBED_DEVICE` | Same for the semantic-search embedder |
-| `MINERU_MODEL_SOURCE` | `huggingface` (default) or `modelscope` |
+| `BRAIN_LLM_PROVIDER` | `anthropic` / `openai` / `gemini` / `local`. Pin a provider; otherwise auto-detected from whichever key is set. |
+| `BRAIN_LLM_MODEL` | Override the model name for the chosen provider. |
+| `ANTHROPIC_API_KEY` | Anthropic credentials (default model: `claude-haiku-4-5`). |
+| `OPENAI_API_KEY` | OpenAI credentials (default model: `gpt-5-mini`). |
+| `GOOGLE_API_KEY` / `GEMINI_API_KEY` | Gemini credentials (default model: `gemini-2.5-flash`). |
+| `BRAIN_LOCAL_URL` | OpenAI-compatible local server URL (e.g. `http://localhost:11434/v1` for Ollama). |
+| `BRAIN_LOCAL_MODEL` | Model name on your local server (e.g. `llama3.1:8b`). |
+| `BRAIN_LOCAL_API_KEY` | Only if your local server enforces auth. |
+| `BRAIN_SKIP_SUMMARY=1` | Skip summarization even with a provider configured. |
+| `MINERU_DEVICE_MODE` | `cpu` / `mps` / `cuda` for MinerU inference. |
+| `BRAIN_EMBED_DEVICE` | Same for the semantic-search embedder. |
+| `MINERU_MODEL_SOURCE` | `huggingface` (default) or `modelscope`. |
 
 ## How agents use it
 
@@ -153,10 +167,14 @@ Edit `_MODEL_NAME` in `scripts/ingest_lib/semantic.py` to any `sentence-transfor
 
 The system prompt for summarization lives in `scripts/ingest_lib/summarize.py`. The schema is enforced via Pydantic, so changing the prompt won't break parsing as long as the returned JSON still matches `DocSummary`.
 
+### Switch LLM provider
+
+`scripts/ingest_lib/summarize.py` dispatches to one of four backends based on the `BRAIN_LLM_PROVIDER` env var (or auto-detect by which API key is present): `anthropic`, `openai`, `gemini`, `local`. The local backend uses the OpenAI SDK with a custom `base_url`, so anything that speaks the OpenAI Chat Completions API (Ollama, LM Studio, llama.cpp's server, vLLM) works. The structured-output schema is the same Pydantic class across providers — they all return a `DocSummary` and the rest of the pipeline doesn't know or care which one ran.
+
 ## Honest limitations
 
 - **PDF extraction quality depends on MinerU.** Scanned PDFs without text layers need OCR, which MinerU handles but is slow. Mathematical typesetting is hit-or-miss.
-- **Summaries cost money.** Cheap (about $0.005 per typical lecture slide deck at Haiku 4.5 prices), but not free. Disable with `BRAIN_SKIP_SUMMARY=1` or by not setting `ANTHROPIC_API_KEY`.
+- **Summaries cost money** if you use a hosted provider. A fraction of a cent per page; under two cents per typical source on Haiku 4.5, GPT-5-mini, or Gemini 2.5 Flash. Free on local providers (Ollama etc.). Disable with `BRAIN_SKIP_SUMMARY=1`.
 - **Concept canonicalization isn't perfect.** The summarizer is asked to reuse existing topic names but occasionally drifts. Slugification catches case and punctuation variants; semantic drift across paraphrases doesn't.
 - **No write-side MCP yet.** Agents on other machines can't add to the vault without a deployed MCP server (see `mcp/README.md` for the design).
 - **Repo size grows with `archive/raw/`.** PDFs aren't diff-friendly, so git history bloats. Long-term, you'll want git-lfs or a separate object store for the raw archive.
